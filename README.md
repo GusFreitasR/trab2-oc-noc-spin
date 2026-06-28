@@ -1,88 +1,67 @@
 # Network-on-Chip (NoC) SPIN Simulator in SystemC
 
-Um simulador de ciclo exato desenvolvido em SystemC que modela a arquitetura de Rede-em-Chip (NoC) SPIN baseada numa topologia de Árvore Gorda Quaternária (Fat-Tree). O projeto implementa controlo de fluxo baseado em créditos, comutação Wormhole e arbitragem probabilística híbrida com roteamento adaptativo.
+Cycle-accurate SystemC simulator that models the SPIN Network-on-Chip (NoC)
+architecture over a quaternary Fat-Tree topology. It implements credit-based flow
+control, wormhole switching and hybrid probabilistic arbitration with adaptive
+routing.
 
 ---
 
-## 🚀 Funcionalidades
+## Architecture
 
-O simulador modela o comportamento de hardware ao nível de transferência de registos (RTL/Cycle-Accurate), incorporando os seguintes mecanismos arquiteturais:
+* **Quaternary Fat-Tree topology:** 2 levels, 8 routers (4 leaf + 4 root)
+  interconnecting 16 terminals.
+* **Wormhole switching:** messages split into *flits* (`Header`, `Payload`,
+  `Tail`); the *header* allocates the route and locks the channel.
+* **Credit-based flow control:** a flit is sent only if the neighboring input
+  FIFO buffer (depth 4) has guaranteed space.
+* **Hybrid probabilistic arbiter:** a per-cycle draw (`std::mt19937`) reorders
+  the port priorities (50% UP, 30% DOWN, 15% mixed-UP, 5% mixed-DOWN),
+  mitigating starvation.
+* **Two-phase routing:** adaptive upward phase (link with the most free credits)
+  and deterministic downward phase (via `dest / 4` and `dest % 4`).
 
-*   **Topologia Fat-Tree Quaternária:** Rede estruturada de 2 níveis contendo 8 roteadores (4 Roteadores Folha no Nível 1 e 4 Roteadores Raiz no Nível 2) interligando um ecossistema de 16 Terminais de processamento independentes.
-*   **Comutação Wormhole (Wormhole Switching):** Mensagens grandes divididas em unidades elementares chamadas *Flits* (`FLIT_HEADER`, `FLIT_PAYLOAD`, `FLIT_TAIL`). O *Header* aloca a rota e tranca o canal de comunicação, permitindo que o corpo do pacote veja em fila indiana.
-*   **Controlo de Fluxo Baseado em Créditos:** Prevenção de perda de dados e transbordo de memória através de contadores de crédito. Um módulo só transmite se o buffer FIFO de entrada do roteador vizinho (capacidade de 4 posições) tiver espaço garantido.
-*   **Árbitro Probabilístico Híbrido:** Lógica anti-*starvation* baseada nas especificações da rede SPIN. O roteador roda uma roleta probabilística a cada ciclo para reordenar a prioridade de atendimento dos canais, mitigando congestionamentos permanentes:
-    *   **50% de chance:** Prioridade para tráfego descendo da Raiz (Portas UP).
-    *   **30% de chance:** Prioridade para tráfego subindo da Folha (Portas DOWN).
-    *   **15% de chance:** Intercalado com leve vantagem para UP.
-    *   **5% de chance:** Intercalado com leve vantagem para DOWN.
-*   **Roteamento Adaptativo e Determinístico:**
-    *   *Subida (UP):* Dinâmico e adaptativo. O Roteador Folha avalia as suas 4 saídas superiores e escolhe o caminho com maior número de créditos livres.
-    *   *Descida (DOWN):* Estrito e determinístico, calculado via ID lógico do terminal de destino (`dest / 4` e `dest % 4`).
-
----
-
-## 📂 Estrutura do Projeto
-
-A separação estrita entre declarações (`.h`) e implementações (`.cpp`) garante a modularidade e legibilidade do código:
-
-```
-trab2-oc-noc-spin
-├── CMakeLists.txt      # Script de automação de compilação CMake
-├── main.cpp            # Testbench principal e geração de estímulos
-├── rspin_router.h      # Declaração do Roteador RSPIN (Máquina Wormhole)
-├── rspin_router.cpp    # Implementação da lógica de arbitragem e roteamento
-├── spin_fat_tree.h     # Declaração do Módulo Top-Level da NoC
-├── spin_fat_tree.cpp   # Conexões de malha, barramentos de dados e créditos
-├── spin_flit.h         # Estrutura do pacote e tipos de Flit
-├── terminal.h          # Declaração do injetor/recetor de tráfego
-└── terminal.cpp        # Geração da sequência Wormhole e consumo de flits
-```
+The model guarantees **lossless delivery for N concurrent flows**, including when
+multiple flows converge on the same output port (a single write per port per
+cycle prevents channel overwriting).
 
 ---
 
-## 🛠️ Requisitos e Instalação
+## Requirements
 
-### Pré-requisitos
-
-*   **Sistema Operativo:** Linux (Fedora, Ubuntu ou similar)
-*   **Compilador:** GCC/G++ suportando o padrão C++17
-*   **Automação:** CMake (versão mínima 3.10) e Ninja/Make
-*   **Biblioteca:** Accellera SystemC (versão 3.0.2 instalada em `/usr/local/systemc-3.0.2`)
-
-### Instruções de Compilação via Linha de Comando
-
-1.  Clone o repositório para a sua máquina local:
-    ```bash
-    git clone https://github.com/seu-usuario/trab2-oc-noc-spin.git
-    cd trab2-oc-noc-spin
-    ```
-2.  Crie um diretório para a build e execute o CMake:
-    ```bash
-    mkdir build && cd build
-    cmake ..
-    ```
-3.  Compile o projeto:
-    ```bash
-    make -j$(nproc)
-    ```
+* Linux, GCC/G++ with C++17, CMake (>= 3.16).
+* **Accellera SystemC 3.0.2.** `CMakeLists.txt` searches for SystemC in this
+  order: the `SYSTEMC_HOME` variable, `~/.local/systemc-3.0.2`,
+  `/usr/local/systemc-3.0.2`. To point it manually:
+  `cmake -DSYSTEMC_HOME=/path/to/systemc ..`
 
 ---
 
-## 🎯 Instruções de Teste e Execução
-
-Para rodar a simulação a partir do executável compilado, execute o seguinte comando no seu terminal dentro da pasta de `build`:
+## Build
 
 ```bash
-./trab2_oc_noc_spin
+mkdir build && cd build
+cmake ..
+cmake --build . -j$(nproc)
 ```
 
-### Configurando Cenários de Tráfego
+## Running and Testing
 
-A configuração de quais terminais vão comunicar é feita diretamente no ficheiro `main.cpp`. Pode modificar a linha de tráfego para testar caminhos locais (mesmo roteador folha) ou caminhos longos (que exigem subir até a raiz):
+The simulation scenarios live in `tests/`. Each test is a full *testbench*
+(`sc_main`) that injects a scenario, **automatically verifies** the delivery of
+every packet (returns a non-zero exit code on failure) and prints a clean,
+aligned report with only what is essential for evaluation.
 
-```cpp
-// main.cpp
-// Parâmetros: configure_traffic(Origem [0-15], Destino [0-15])
-my_noc.configure_traffic(1, 14);
+Run all tests with automatic verification (CTest):
+
+```bash
+cd build && ctest -V                              
 ```
+
+| Test                 | Scenario          | Verifies                          |
+|----------------------|-------------------|-----------------------------------|
+| `test_single_flow`   | `T1 -> T14`       | delivery crossing the root        |
+| `test_local_flow`    | `T0 -> T3`        | local routing within the same leaf|
+| `test_convergence`   | `T0,T8 -> T7`     | no loss under output contention   |
+| `test_permutation`   | 8 disjoint flows  | concurrent load without deadlock  |
+| `test_many_to_one`   | `T0..T3 -> T10`   | serialization to one destination  |
